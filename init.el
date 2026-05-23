@@ -188,16 +188,58 @@
   (add-to-list 'consult-buffer-sources 'consult-source-eshell 'append)
   )
 
-(defun select-text-in-delimiters ()
+(defun mje/select-text-in-delimiters (delimiter)
   "Select text between the nearest left and right delimiters."
   (interactive)
-  (let (start end)
-    (skip-chars-backward "^<>([{\\\"'")
-    (setq start (point))
-    (skip-chars-forward "^<>)]}\\\"'")
-    (setq end (point))
-    (set-mark start)))
-(keymap-global-set "C-c '" 'select-text-in-delimiters)
+  
+  (let (start end alt-delimiter inclusive)
+    (setq-default inclusive t)
+    (catch 'bail-out
+      (cond
+       ((string-equal delimiter "(")
+	(setq alt-delimiter ")")
+	(setq inclusive nil))
+       ((string-equal delimiter "[")
+	(setq alt-delimiter "]")
+	(setq inclusive nil))
+       ((string-equal delimiter "{")
+	(setq alt-delimiter "}")
+	(setq inclusive nil))
+       ((string-equal delimiter ")")
+	(setq inclusive t)
+	(setq delimiter "(")
+	(setq alt-delimiter ")")
+	)
+       ((string-equal delimiter "]")
+	(setq inclusive t)
+	(setq delimiter "[")
+	(setq alt-delimiter "]")
+	)       
+       ((string-equal delimiter "}")
+	(setq inclusive t)
+	(setq delimiter "{")
+	(setq alt-delimiter "}")
+	)
+       (t (progn
+	    (message (format "delimiter '%s' not defined" delimiter))
+	    (throw 'bail-out "delim not found"))))
+
+      (skip-chars-backward (concat "^" delimiter)) 
+      (setq start (point))
+      (when inclusive
+	(backward-char 1))
+      (skip-chars-forward (concat "^" alt-delimiter))
+      (setq end (point))
+      (when inclusive
+	(forward-char 1))
+      (set-mark start))))
+
+(keymap-global-set "C-c (" (lambda () (interactive) (mje/select-text-in-delimiters "(")))
+(keymap-global-set "C-c [" (lambda () (interactive) (mje/select-text-in-delimiters "[")))
+(keymap-global-set "C-c {" (lambda () (interactive) (mje/select-text-in-delimiters "{")))
+(keymap-global-set "C-c )" (lambda () (interactive) (mje/select-text-in-delimiters ")")))
+(keymap-global-set "C-c ]" (lambda () (interactive) (mje/select-text-in-delimiters "]")))
+(keymap-global-set "C-c }" (lambda () (interactive) (mje/select-text-in-delimiters "}")))
 
 (use-package embark
   :ensure t
@@ -306,3 +348,34 @@ fixed-pitch))
 (add-hook 'org-mode-hook 'org-modern-mode)
 (add-hook 'org-mode-hook 'org-indent-mode)
 (add-hook 'org-mode-hook 'org-modern-indent-mode)
+
+;;; LSP
+(with-eval-after-load 'eglot
+  (add-to-list 'eglot-server-programs
+	       '(csharp-mode . ("csharp-ls"))))
+;;; Completion
+(use-package corfu
+  :ensure t
+  :init
+  (global-corfu-mode))
+
+(setq corfu-auto t
+      corfu-auto-delay 0.2
+      corfu-auto-trigger "."
+      corfu-quit-no-match 'separator)
+
+(use-package emacs
+  :ensure t
+  :custom
+  (tab-always-indent 'complete)
+  (text-mode-ispell-word-completion nil)
+  (read-extended-command-predicate #'command-completion-default-include-p))
+
+(defun mje/consult-ripgrep-at-point ()
+  "Search for the word at point using consult-ripgrep."
+  (interactive)
+  (consult-ripgrep nil (thing-at-point 'symbol t)))
+
+(add-hook 'csharp-mode-hook
+          (lambda ()
+             (define-key csharp-mode-map (kbd "C-c G") 'mje/consult-ripgrep-at-point)))
